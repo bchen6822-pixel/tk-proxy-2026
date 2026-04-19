@@ -1,5 +1,6 @@
 const express = require('express');
 const request = require('request');
+const cheerio = require('cheerio'); // 用于解析HTML
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -12,44 +13,57 @@ app.use((req, res, next) => {
   next();
 });
 
-// 核心代理接口
+// 1. 基础代理接口（兼容之前的API请求）
 app.get('/api/*', (req, res) => {
-  // 拼接 TikTok 目标地址
   const targetUrl = `https://www.tiktok.com${req.originalUrl}`;
-  
-  // 模拟真实浏览器请求头，绕过反爬
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-    'Referer': 'https://www.tiktok.com/',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-    'TE': 'Trailers'
+    'Referer': 'https://www.tiktok.com/'
+  };
+  request({ url: targetUrl, headers, followAllRedirects: true, timeout: 20000, gzip: true }, (error, response, body) => {
+    if (error) return res.status(500).json({ error: 'Proxy failed', msg: error.message });
+    res.status(response.statusCode).send(body);
+  });
+});
+
+// 2. 新增：获取视频作者头像的专用接口
+app.get('/get-avatar', (req, res) => {
+  const { videoUrl } = req.query;
+  if (!videoUrl) return res.status(400).json({ error: '请提供TikTok视频链接，格式：?videoUrl=https://www.tiktok.com/@xxx/video/12345' });
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    'Referer': 'https://www.tiktok.com/'
   };
 
-  // 发起请求并跟随重定向
-  request({
-    url: targetUrl,
-    headers: headers,
-    followAllRedirects: true,
-    timeout: 20000, // 延长超时时间到20秒
-    gzip: true // 开启gzip解压
-  }, (error, response, body) => {
-    if (error) {
-      return res.status(500).json({ error: 'Proxy request failed', message: error.message });
-    }
-    // 直接返回 TikTok 的响应
-    res.status(response.statusCode).send(body);
+  // 请求TikTok视频页面
+  request({ url: videoUrl, headers, followAllRedirects: true, timeout: 20000, gzip: true }, (error, response, body) => {
+    if (error) return res.status(500).json({ error: '请求失败', msg: error.message });
+    if (response.statusCode !== 200) return res.status(500).json({ error: 'TikTok返回错误', status: response.statusCode });
+
+    // 用cheerio解析HTML，提取头像
+    const $ = cheerio.load(body);
+    // TikTok页面里，头像通常在og:image或者作者信息的img标签里
+    const avatarUrl = $('meta[property="og:image"]').attr('content') || 
+                      $('img[data-e2e="avatar"]').attr('src') ||
+                      $('div[data-e2e="user-avatar"] img').attr('src');
+
+    if (!avatarUrl) return res.status(404).json({ error: '未找到头像地址' });
+
+    // 返回头像URL
+    res.json({
+      success: true,
+      avatarUrl: avatarUrl,
+      proxyUrl: `${req.protocol}://${req.get('host')}/api?url=${encodeURIComponent(avatarUrl)}`
+    });
   });
 });
 
 // 根路径健康检查
 app.get('/', (req, res) => {
-  res.send('✅ TikTok Proxy Ready! Service is running.');
+  res.send('✅ TikTok Proxy Ready! 支持视频页面代理 + 头像解析');
 });
 
 app.listen(port, () => {
-  console.log(`Proxy server is running on port ${port}`);
+  console.log(`服务运行在端口 ${port}`);
 });
