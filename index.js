@@ -3,7 +3,7 @@ const axios = require('axios');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 跨域
+// 跨域配置
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -12,12 +12,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// 健康检查
+// 根路径（你的欢迎页）
 app.get('/', (req, res) => {
-  res.send('✅ 服务运行正常');
+  res.send('✅ TikTok 头像服务已就绪! 使用 /get-avatar?videoUrl=链接 接口获取头像');
 });
 
-// 头像接口（和前端完全对应）
+// 【核心】获取头像接口
 app.get('/get-avatar', async (req, res) => {
   const { videoUrl } = req.query;
   if (!videoUrl) {
@@ -25,7 +25,7 @@ app.get('/get-avatar', async (req, res) => {
   }
 
   try {
-    // 使用 oEmbed 接口，对用户主页和视频链接都有效
+    // 使用 TikTok 官方公开的 oEmbed 接口，对用户主页和视频链接都有效
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`;
     const { data } = await axios.get(oembedUrl, {
       headers: {
@@ -53,7 +53,7 @@ app.get('/get-avatar', async (req, res) => {
   }
 });
 
-// 自保活（防止 Render 休眠）
+// 自保活，防止 Render 休眠
 const SELF_URL = "https://tk-proxy-2026.onrender.com";
 function keepAlive() {
   axios.get(SELF_URL, { timeout: 5000 }).catch(() => {});
