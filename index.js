@@ -1,5 +1,5 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const request = require('request-promise-native');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -12,60 +12,51 @@ app.use((req, res, next) => {
   next();
 });
 
-// 全局单例浏览器实例，避免重复启动
-let browserInstance;
-const getBrowser = async () => {
-  if (!browserInstance) {
-    browserInstance = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-      headless: 'new'
-    });
-  }
-  return browserInstance;
-};
-
-// 核心头像获取接口（真实浏览器模拟）
+// 核心接口：直接从TikTok的API获取视频作者信息
 app.get('/get-avatar', async (req, res) => {
   const { videoUrl } = req.query;
   if (!videoUrl) return res.status(400).json({ error: '请提供TikTok视频链接，格式：?videoUrl=https://www.tiktok.com/@xxx/video/123' });
 
-  let page;
   try {
-    const browser = await getBrowser();
-    page = await browser.newPage();
+    // 1. 先获取视频的重定向URL，拿到真实ID
+    const redirectRes = await request({
+      url: videoUrl,
+      followRedirect: true,
+      resolveWithFullResponse: true,
+      simple: false
+    });
+    const finalUrl = redirectRes.request.uri.href;
+    const videoId = finalUrl.split('/').pop().split('?')[0];
 
-    // 1. 模拟真实浏览器请求头
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36');
-    
-    // 2. 访问视频页面，等待完全加载
-    await page.goto(videoUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-    // 3. 等待头像元素加载（关键：直接在浏览器环境里取）
-    const avatarUrl = await page.evaluate(() => {
-      // 优先取作者头像
-      const avatar = document.querySelector('img[data-e2e="avatar"]');
-      if (avatar) return avatar.src;
-      // 备用：取og:image
-      const ogImage = document.querySelector('meta[property="og:image"]');
-      if (ogImage) return ogImage.content;
-      return null;
+    // 2. 调用TikTok的公开API获取视频数据
+    const apiUrl = `https://www.tiktok.com/api/item/detail/?itemId=${videoId}`;
+    const apiRes = await request({
+      url: apiUrl,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Referer': 'https://www.tiktok.com/'
+      },
+      json: true,
+      timeout: 20000
     });
 
-    if (!avatarUrl) {
-      return res.status(404).json({ error: '未找到头像地址' });
+    // 3. 从API响应中提取头像地址
+    if (!apiRes.itemInfo || !apiRes.itemInfo.itemStruct) {
+      return res.status(404).json({ error: '未找到视频信息' });
     }
 
-    // 4. 返回头像URL
+    const author = apiRes.itemInfo.itemStruct.author;
+    const avatarUrl = author.avatarThumb || author.avatarMedium || author.avatarLarger;
+
     res.json({
       success: true,
-      avatarUrl: avatarUrl
+      avatarUrl: avatarUrl,
+      authorName: author.uniqueId
     });
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error:', error.message);
     res.status(500).json({ error: '获取失败', message: error.message });
-  } finally {
-    if (page) await page.close();
   }
 });
 
