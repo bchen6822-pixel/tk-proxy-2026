@@ -3,7 +3,7 @@ const axios = require('axios');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// 全局跨域处理
+// 跨域
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -12,13 +12,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// 核心接口：直接从TikTok oEmbed接口获取作者信息（100%可用）
+// 健康检查
+app.get('/', (req, res) => {
+  res.send('✅ 服务运行正常');
+});
+
+// 头像接口（和前端完全对应）
 app.get('/get-avatar', async (req, res) => {
   const { videoUrl } = req.query;
-  if (!videoUrl) return res.status(400).json({ error: '请提供TikTok视频链接，格式：?videoUrl=https://www.tiktok.com/@xxx/video/123' });
+  if (!videoUrl) {
+    return res.status(400).json({ error: '请提供 videoUrl 参数' });
+  }
 
   try {
-    // TikTok oEmbed 是官方公开接口，几乎不会被封
+    // 使用 oEmbed 接口，对用户主页和视频链接都有效
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`;
     const { data } = await axios.get(oembedUrl, {
       headers: {
@@ -27,32 +34,32 @@ app.get('/get-avatar', async (req, res) => {
       timeout: 15000
     });
 
-    // 从oEmbed响应中直接提取头像
-    if (!data.thumbnail_url) {
-      return res.status(404).json({ error: '未找到头像地址' });
+    if (data && data.thumbnail_url) {
+      res.json({
+        success: true,
+        avatarUrl: data.thumbnail_url,
+        authorName: data.author_name
+      });
+    } else {
+      res.status(404).json({ error: '未找到头像地址' });
     }
 
-    // 返回结果，和目标网站一样直接拿到头像URL
-    res.json({
-      success: true,
-      avatarUrl: data.thumbnail_url,
-      authorName: data.author_name,
-      videoTitle: data.title
-    });
-
-  } catch (error) {
-    console.error('Error:', error.message);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({
       error: '获取失败',
-      message: error.response?.data || error.message
+      message: err.message
     });
   }
 });
 
-// 根路径健康检查
-app.get('/', (req, res) => {
-  res.send('✅ TikTok 头像服务已就绪！使用 /get-avatar?videoUrl=链接 接口获取头像');
-});
+// 自保活（防止 Render 休眠）
+const SELF_URL = "https://tk-proxy-2026.onrender.com";
+function keepAlive() {
+  axios.get(SELF_URL, { timeout: 5000 }).catch(() => {});
+}
+setInterval(keepAlive, 4 * 60 * 1000);
+keepAlive();
 
 app.listen(port, () => {
   console.log(`服务运行在端口 ${port}`);
