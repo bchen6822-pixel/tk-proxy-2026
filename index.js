@@ -12,12 +12,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// 根路径（保活用）
+// 根路径
 app.get('/', (req, res) => {
   res.send('✅ TikTok 头像服务已就绪! 使用 /get-avatar?videoUrl=链接 接口获取头像');
 });
 
-// 核心接口：纯 oEmbed 实现
+// 修复版接口：确保一定返回 avatarUrl
 app.get('/get-avatar', async (req, res) => {
   const { videoUrl } = req.query;
   if (!videoUrl) {
@@ -25,7 +25,6 @@ app.get('/get-avatar', async (req, res) => {
   }
 
   try {
-    // 直接调用 TikTok oEmbed 接口
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`;
     const { data } = await axios.get(oembedUrl, {
       headers: {
@@ -34,15 +33,21 @@ app.get('/get-avatar', async (req, res) => {
       timeout: 15000
     });
 
-    // 直接返回数据
-    res.json({
-      success: true,
-      avatarUrl: data.thumbnail_url,
-      authorName: data.author_name
-    });
+    // 关键修复：优先取 thumbnail_url，没有的话用 author_thumbnail_url
+    const avatarUrl = data.thumbnail_url || data.author_thumbnail_url;
+
+    if (avatarUrl) {
+      res.json({
+        success: true,
+        avatarUrl: avatarUrl,
+        authorName: data.author_name
+      });
+    } else {
+      throw new Error('未找到头像地址');
+    }
 
   } catch (err) {
-    console.error('接口调用失败:', err);
+    console.error(err);
     res.status(404).json({ error: '未找到头像地址' });
   }
 });
