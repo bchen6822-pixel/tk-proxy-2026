@@ -25,7 +25,6 @@ app.get('/get-avatar', async (req, res) => {
   }
 
   try {
-    // 调用 TikTok oEmbed 接口
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`;
     const { data } = await axios.get(oembedUrl, {
       headers: {
@@ -34,7 +33,6 @@ app.get('/get-avatar', async (req, res) => {
       timeout: 15000
     });
 
-    // 确保返回头像地址
     if (data.thumbnail_url || data.author_thumbnail_url) {
       res.json({
         success: true,
