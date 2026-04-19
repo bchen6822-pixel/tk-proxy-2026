@@ -1,7 +1,8 @@
 const express = require('express');
 const axios = require('axios');
+const cheerio = require('cheerio'); // 用于解析网页
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 10000; // 注意端口号！
 
 // 跨域配置
 app.use((req, res, next) => {
@@ -17,7 +18,7 @@ app.get('/', (req, res) => {
   res.send('✅ TikTok 头像服务已就绪!');
 });
 
-// 核心接口：获取头像
+// 核心接口：从用户主页直接抓取头像
 app.get('/get-avatar', async (req, res) => {
   const { videoUrl } = req.query;
   if (!videoUrl) {
@@ -25,19 +26,24 @@ app.get('/get-avatar', async (req, res) => {
   }
 
   try {
-    const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`;
-    const { data } = await axios.get(oembedUrl, {
+    // 1. 直接请求用户主页
+    const { data: html } = await axios.get(videoUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
       },
       timeout: 15000
     });
 
-    if (data.thumbnail_url || data.author_thumbnail_url) {
+    // 2. 解析 HTML，从 meta 标签中提取头像和用户名
+    const $ = cheerio.load(html);
+    const avatarUrl = $('meta[property="og:image"]').attr('content');
+    const authorName = $('meta[property="og:title"]').attr('content')?.split(' ')[0] || '';
+
+    if (avatarUrl) {
       res.json({
         success: true,
-        avatarUrl: data.thumbnail_url || data.author_thumbnail_url,
-        authorName: data.author_name
+        avatarUrl: avatarUrl,
+        authorName: authorName
       });
     } else {
       throw new Error('未找到头像地址');
