@@ -1,11 +1,11 @@
 {
-  "name": "tiktok-avatar-simple",
+  "name": "tiktok-avatar-oembed",
   "version": "1.0.0",
-  "description": "轻量版TikTok头像获取服务",
+  "description": "使用TikTok官方oEmbed接口获取头像",
   "main": "index.js",
   "dependencies": {
     "express": "^4.18.2",
-    "request-promise-native": "^1.0.9"
+    "axios": "^1.6.0"
   },
   "scripts": {
     "start": "node index.js"
