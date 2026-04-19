@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const cheerio = require('cheerio'); // 新增：用于解析网页获取头像
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -12,12 +13,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// 根路径（你的欢迎页）
+// 根路径
 app.get('/', (req, res) => {
   res.send('✅ TikTok 头像服务已就绪! 使用 /get-avatar?videoUrl=链接 接口获取头像');
 });
 
-// 【核心】获取头像接口
+// 核心接口：双方案获取头像
 app.get('/get-avatar', async (req, res) => {
   const { videoUrl } = req.query;
   if (!videoUrl) {
@@ -25,35 +26,56 @@ app.get('/get-avatar', async (req, res) => {
   }
 
   try {
-    // 使用 TikTok 官方公开的 oEmbed 接口，对用户主页和视频链接都有效
+    // 方案1：尝试 oEmbed 接口（对视频链接有效）
     const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`;
-    const { data } = await axios.get(oembedUrl, {
+    const oembedResp = await axios.get(oembedUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
       },
-      timeout: 15000
+      timeout: 10000
     });
 
-    if (data && data.thumbnail_url) {
-      res.json({
+    if (oembedResp.data && oembedResp.data.thumbnail_url) {
+      return res.json({
         success: true,
-        avatarUrl: data.thumbnail_url,
-        authorName: data.author_name
+        avatarUrl: oembedResp.data.thumbnail_url,
+        authorName: oembedResp.data.author_name
       });
-    } else {
-      res.status(404).json({ error: '未找到头像地址' });
     }
-
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      error: '获取失败',
-      message: err.message
-    });
+    console.log('oEmbed 方案失败，尝试直接爬取:', err.message);
   }
+
+  // 方案2：直接爬取用户主页，解析头像
+  try {
+    const pageResp = await axios.get(videoUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+      },
+      timeout: 10000
+    });
+
+    const $ = cheerio.load(pageResp.data);
+    // 从页面 meta 标签中获取头像
+    const avatarUrl = $('meta[property="og:image"]').attr('content');
+    const authorName = $('meta[property="og:title"]').attr('content')?.split(' ')[0] || '';
+
+    if (avatarUrl) {
+      return res.json({
+        success: true,
+        avatarUrl: avatarUrl,
+        authorName: authorName
+      });
+    }
+  } catch (err) {
+    console.error('直接爬取方案也失败了:', err.message);
+  }
+
+  // 两种方案都失败
+  return res.status(404).json({ error: '未找到头像地址' });
 });
 
-// 自保活，防止 Render 休眠
+// 自保活
 const SELF_URL = "https://tk-proxy-2026.onrender.com";
 function keepAlive() {
   axios.get(SELF_URL, { timeout: 5000 }).catch(() => {});
